@@ -21,11 +21,11 @@ def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description='Make predictions using trained models')
     
-    parser.add_argument('--input-path', type=str, required=True,
+    parser.add_argument('--input-path', type=str, default='data/raw/testing.csv',
                         help='Path to the input CSV file')
-    parser.add_argument('--output-path', type=str, required=True,
+    parser.add_argument('--output-path', type=str, default='data/predictions/predictions.csv',
                         help='Path to save the output CSV file with predictions')
-    parser.add_argument('--model-path', type=str, required=True,
+    parser.add_argument('--model-path', type=str, default='models/trained',
                         help='Directory containing trained models and preprocessors')
     parser.add_argument('--model-type', type=str, default='ensemble',
                         choices=['xgboost', 'random_forest', 'gradient_boost', 'ensemble', 'all'],
@@ -77,6 +77,12 @@ def main():
     """Main function to execute the prediction process."""
     args = parse_arguments()
     
+    # Check if models directory exists
+    if not os.path.exists(args.model_path):
+        print(f"Error: Models directory '{args.model_path}' does not exist")
+        print("Please ensure you have trained models in the specified directory")
+        return
+    
     # Load data
     print(f"Loading data from {args.input_path}")
     try:
@@ -84,6 +90,9 @@ def main():
     except FileNotFoundError:
         print(f"Error: File {args.input_path} not found")
         return
+    
+    # Create output directory if it doesn't exist
+    os.makedirs(os.path.dirname(args.output_path), exist_ok=True)
     
     # Define potential features (all possible columns we might use)
     potential_features = ['egc', 'highTech', 'age', 'year', 'exchange', 'industryFF12', 'nUnderwriters',
@@ -93,10 +102,19 @@ def main():
                       'roa', 'leverage', 'vc', 'pe', 'prominence', 'nVCs', 'nExecutives',
                       'priorFinancing', 'reputationLeadMax', 'reputationAvg', 'nPatents',
                       'commonEquity.1', 'ipoSize', 'ipoSize_normalized']
-    
-    # Initialize an empty list for available features
-    numeric_features = [col for col in potential_features if col in data.columns]
-    
+
+    # Add encoded columns if present in the data
+    encoded_columns = [col for col in data.columns if col.startswith('exchange_encoded') or col.startswith('industry_')]
+    all_features = potential_features + encoded_columns
+
+    # Add any missing columns with default value (NaN)
+    for col in all_features:
+        if col not in data.columns:
+            data[col] = np.nan
+
+    # Use all features that are now present
+    numeric_features = [col for col in all_features if col in data.columns]
+
     print(f"Using {len(numeric_features)} numeric features: {numeric_features}")
     
     # Preprocess data
@@ -143,9 +161,35 @@ def main():
         
         # Load preprocessors
         try:
-            imputer = load(os.path.join(args.model_path, f'imputer_{target}.joblib'))
-            scaler = load(os.path.join(args.model_path, f'scaler_{target}.joblib'))
-        except FileNotFoundError as e:
+            imputer_path = os.path.join(args.model_path, f'imputer_{target}.joblib')
+            scaler_path = os.path.join(args.model_path, f'scaler_{target}.joblib')
+            
+            if not os.path.exists(imputer_path):
+                print(f"Error: Imputer file not found at {imputer_path}")
+                print("Please ensure you have trained the models first")
+                continue
+                
+            if not os.path.exists(scaler_path):
+                print(f"Error: Scaler file not found at {scaler_path}")
+                print("Please ensure you have trained the models first")
+                continue
+                
+            imputer = load(imputer_path)
+            scaler = load(scaler_path)
+
+            # Subset X to only the columns the imputer was trained on
+            if hasattr(imputer, 'feature_names_in_'):
+                expected_features = list(imputer.feature_names_in_)
+                missing_features = [col for col in expected_features if col not in X.columns]
+                extra_features = [col for col in X.columns if col not in expected_features]
+                if missing_features:
+                    print(f"Warning: Missing features in test set: {missing_features}. Filling with NaN.")
+                    for col in missing_features:
+                        X[col] = np.nan
+                if extra_features:
+                    print(f"Note: Extra features in test set not used by model: {extra_features}. They will be ignored.")
+                X = X[expected_features]
+        except Exception as e:
             print(f"Error loading preprocessors: {e}")
             print(f"Make sure the model files exist in {args.model_path}")
             continue
@@ -235,7 +279,11 @@ def main():
     
     # Save the results
     print(f"Saving predictions to {args.output_path}")
-    data.to_csv(args.output_path, index=False)
+    prediction_cols = [f'predicted_{target}' for target in targets if f'predicted_{target}' in data.columns]
+    if prediction_cols:
+        data[prediction_cols].to_csv(args.output_path, index=False)
+    else:
+        data.to_csv(args.output_path, index=False)
     
     # Display a sample of predictions
     prediction_cols = [f'predicted_{target}' for target in targets if f'predicted_{target}' in data.columns]
