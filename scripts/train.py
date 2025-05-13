@@ -27,7 +27,7 @@ def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description='Train machine learning models for IPO price prediction')
     
-    parser.add_argument('--input-path', type=str, default='project/data/raw/training_data.csv',
+    parser.add_argument('--input-path', type=str, default='data/raw/training_data.csv',
                         help='Path to the input CSV file')
     parser.add_argument('--output-path', type=str, default='models/trained',
                         help='Directory to save trained models')
