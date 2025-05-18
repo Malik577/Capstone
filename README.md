@@ -76,6 +76,105 @@ Arguments:
 - `--apply-feature-engineering`: Apply feature engineering
 - `--select-features`: Use feature selection
 
+### API Usage
+
+The project includes a FastAPI implementation for making predictions via HTTP requests. The API provides endpoints for predicting IPO offer prices and first-day closing prices.
+
+#### Starting the API Server
+
+To start the API server:
+
+```bash
+python api/main.py
+```
+
+The server will start on http://localhost:8001 by default.
+
+#### Available Endpoints
+
+1. **Health Check**
+   ```
+   GET /health
+   ```
+   Returns the health status of the API and its dependencies.
+
+2. **API Metadata**
+   ```
+   GET /metadata
+   ```
+   Returns information about the API, including expected features and available endpoints.
+
+3. **Offer Price Prediction**
+   ```
+   POST /predict/offer-price
+   ```
+   Predicts the IPO offer price for one or more samples.
+
+4. **First-Day Closing Price Prediction**
+   ```
+   POST /predict/close-day1
+   ```
+   Predicts the first-day closing price for one or more samples.
+
+5. **Combined Prediction**
+   ```
+   POST /predict/combined
+   ```
+   Predicts both offer price and first-day closing price for one or more samples.
+
+#### Example API Request
+
+```python
+import requests
+import json
+
+# API endpoint
+url = "http://localhost:8001/predict/combined"
+
+# Sample IPO data
+data = {
+    "samples": [{
+        "totalRevenue": 1000000,
+        "totalAssets": 2000000,
+        "netIncome": 500000,
+        "commonEquity": 1500000,
+        "investmentReceived": 300000,
+        "sharesOfferedPerc": 25,
+        "nVCs": 2,
+        "nExecutives": 5,
+        "nPatents": 3,
+        "exchange": "NYSE",
+        "industryFF12": "Finance",
+        "ipoSize": 10000000,
+        "nUnderwriters": 3,
+        "amountOnProspectus": 10000000,
+        "sp2weeksBefore": 100,
+        "blueSky": 0.5,
+        "managementFee": 0.07,
+        "bookValue": 15,
+        "roa": 0.25,
+        "leverage": 0.3,
+        "vc": 1,
+        "pe": 20,
+        "prominence": 0.8,
+        "priorFinancing": 2000000,
+        "reputationLeadMax": 0.9,
+        "reputationAvg": 0.85
+    }]
+}
+
+# Make the request
+response = requests.post(url, json=data)
+predictions = response.json()
+print(json.dumps(predictions, indent=2))
+```
+
+#### API Documentation
+
+Interactive API documentation is available at:
+- Swagger UI: http://localhost:8001/docs
+- ReDoc: http://localhost:8001/redoc
+
 ## Models
 
 This project implements four types of regression models:
