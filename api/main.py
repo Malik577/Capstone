@@ -70,37 +70,36 @@ def load_poly(target: str):
 
 # --- Input/Output Schemas ---
 class IPOInput(BaseModel):
-    totalRevenue: float
-    totalAssets: float
-    netIncome: float
-    commonEquity: float
-    investmentReceived: float
-    sharesOfferedPerc: float
-    nVCs: int
-    nExecutives: int
-    nPatents: int
-    exchange: str
-    industryFF12: str
-    ipoSize: float
-    nUnderwriters: int
-    amountOnProspectus: float
-    sp2weeksBefore: float
-    blueSky: float
-    managementFee: float
-    bookValue: float
-    roa: float
-    leverage: float
-    vc: float
-    pe: float
-    prominence: float
-    priorFinancing: float
-    reputationLeadMax: float
-    reputationAvg: float
     age: Optional[float] = 0
-    commonEquity_1: Optional[float] = 0
-    egc: Optional[int] = 0
-    highTech: Optional[int] = 0
-    year: Optional[int] = 0
+    egc: Optional[float] = 0
+    highTech: Optional[float] = 0
+    year: Optional[float] = 0
+    exchange: Optional[str] = None
+    industryFF12: Optional[str] = None
+    nUnderwriters: Optional[float] = 0
+    sharesOfferedPerc: Optional[float] = 0
+    investmentReceived: Optional[float] = 0
+    amountOnProspectus: Optional[float] = 0
+    commonEquity: Optional[float] = 0
+    sp2weeksBefore: Optional[float] = 0
+    blueSky: Optional[float] = 0
+    managementFee: Optional[float] = 0
+    bookValue: Optional[float] = 0
+    totalAssets: Optional[float] = 0
+    totalRevenue: Optional[float] = 0
+    netIncome: Optional[float] = 0
+    roa: Optional[float] = 0
+    leverage: Optional[float] = 0
+    vc: Optional[float] = 0
+    pe: Optional[float] = 0
+    prominence: Optional[float] = 0
+    nVCs: Optional[float] = 0
+    nExecutives: Optional[float] = 0
+    priorFinancing: Optional[float] = 0
+    reputationLeadMax: Optional[float] = 0
+    reputationAvg: Optional[float] = 0
+    nPatents: Optional[float] = 0
+    ipoSize: Optional[float] = 0
 
 class BatchIPOInput(BaseModel):
     samples: List[IPOInput]
@@ -158,13 +157,9 @@ def preprocess_input(df: pd.DataFrame, target: str = 'offerPrice') -> pd.DataFra
             df = df.drop(columns=[col])
     
     # Ensure missing features are present
-    for col in ['age', 'commonEquity.1', 'egc', 'highTech', 'year']:
+    for col in ['age', 'egc', 'highTech', 'year']:
         if col not in df.columns:
             df[col] = 0
-    # If 'commonEquity_1' is used in the input, rename to match model
-    if 'commonEquity_1' in df.columns:
-        df['commonEquity.1'] = df['commonEquity_1']
-        df = df.drop(columns=['commonEquity_1'])
     
     # --- NEW: Match imputer's expected features exactly ---
     try:

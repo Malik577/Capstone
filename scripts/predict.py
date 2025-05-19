@@ -101,7 +101,7 @@ def main():
                       'bookValue', 'totalAssets', 'totalRevenue', 'netIncome',
                       'roa', 'leverage', 'vc', 'pe', 'prominence', 'nVCs', 'nExecutives',
                       'priorFinancing', 'reputationLeadMax', 'reputationAvg', 'nPatents',
-                      'commonEquity.1', 'ipoSize', 'ipoSize_normalized']
+                      'ipoSize', 'ipoSize_normalized']
 
     # Add encoded columns if present in the data
     encoded_columns = [col for col in data.columns if col.startswith('exchange_encoded') or col.startswith('industry_')]

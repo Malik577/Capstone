@@ -93,10 +93,6 @@ def main():
         if col in data.columns:
             numeric_features.append(col)
     
-    # These might have special characters or issues, handle them separately
-    if 'commonEquity.1' in data.columns:
-        numeric_features.append('commonEquity.1')
-    
     # Handle ipoSize as a special case
     if 'ipoSize' in data.columns:
         # Access it directly to make sure it works
