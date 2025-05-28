@@ -161,20 +161,8 @@ def preprocess_input(df: pd.DataFrame, target: str = 'offerPrice') -> pd.DataFra
         if col not in df.columns:
             df[col] = 0
     
-    # --- NEW: Match imputer's expected features exactly ---
-    try:
-        imputer = load_imputer(target)
-        if hasattr(imputer, 'feature_names_in_'):
-            expected_features = list(imputer.feature_names_in_)
-            # Add missing columns as 0
-            for col in expected_features:
-                if col not in df.columns:
-                    df[col] = 0
-            # Drop extra columns
-            df = df[expected_features]
-    except Exception as e:
-        # If imputer can't be loaded, fallback to previous behavior
-        pass
+    # Note: Don't force match to imputer features here as it drops engineered features
+    # The models were trained with the full feature set including engineered features
     
     return df
 
@@ -261,13 +249,27 @@ async def root():
 @app.get("/health")
 async def health_check():
     try:
+        missing_components = []
         for target in ['offerPrice', 'closeDay1']:
-            model = load_model(target)
-            imputer = load_imputer(target)
-            scaler = load_scaler(target)
-            feature_selector = load_feature_selector(target)
-            poly = load_poly(target)
-        return {"status": "healthy"}
+            # Check required components
+            try:
+                model = load_model(target)
+                imputer = load_imputer(target)
+                scaler = load_scaler(target)
+                feature_selector = load_feature_selector(target)
+            except Exception as e:
+                missing_components.append(f"{target}: {str(e)}")
+                
+            # Check optional components (poly is optional)
+            try:
+                poly = load_poly(target)
+            except Exception:
+                # Polynomial transformer is optional, don't fail health check
+                pass
+                
+        if missing_components:
+            return {"status": "unhealthy", "errors": missing_components}
+        return {"status": "healthy", "message": "All required model components loaded successfully"}
     except Exception as e:
         return {"status": "unhealthy", "error": str(e)}
 
