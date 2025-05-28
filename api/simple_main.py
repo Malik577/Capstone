@@ -5,11 +5,23 @@ import numpy as np
 import pandas as pd
 import math
 import random
+import sys
+from pathlib import Path
 from datetime import datetime
+
+# Add RF directory to path for imports
+sys.path.append(str(Path(__file__).parent.parent / "RF"))
+
+# Import risk analyzer
+try:
+    from risk_analyzer import analyze_risk_factors
+except ImportError:
+    print("Warning: Risk analyzer not available. Risk factor endpoints will be disabled.")
+    analyze_risk_factors = None
 
 app = FastAPI(
     title="IPO Price Prediction API - Simplified",
-    description="Simplified API for predicting IPO offer prices and first day closing prices",
+    description="Simplified API for predicting IPO offer prices, first day closing prices, and risk analysis",
     version="2.0.0"
 )
 
@@ -55,6 +67,21 @@ class CombinedPredictionOutput(BaseModel):
     offer_price_confidence: Optional[float]
     close_day1_confidence: Optional[float]
     feature_importances: Dict[str, float]
+
+# --- Risk Factor Models ---
+class RiskFactorInput(BaseModel):
+    risk_text: str = Field(..., min_length=50, max_length=10000, description="Risk factors text to analyze")
+    company_name: Optional[str] = Field(None, description="Company name for context")
+
+class BatchRiskFactorInput(BaseModel):
+    samples: List[RiskFactorInput]
+
+class RiskFactorOutput(BaseModel):
+    risk_score: float = Field(..., description="Overall risk score (0-100)")
+    risk_level: str = Field(..., description="Risk level classification")
+    score_breakdown: Dict[str, float] = Field(..., description="Breakdown by risk category")
+    critical_concerns: List[str] = Field(..., description="Top 3 critical concerns")
+    analysis_summary: str = Field(..., description="Full analysis text")
 
 # --- Prediction Logic ---
 def calculate_ipo_predictions(data: dict) -> tuple[float, float, float, float]:
@@ -253,6 +280,110 @@ def get_feature_importances(data: dict) -> Dict[str, float]:
     }
     return importances
 
+# --- Risk Factor Processing ---
+def process_risk_factor_analysis(risk_text: str, company_name: Optional[str] = None) -> dict:
+    """Process risk factor text and return structured analysis (optimized for database storage)"""
+    if not analyze_risk_factors:
+        raise RuntimeError("Risk factor analysis is not available")
+    
+    try:
+        # Get analysis from OpenAI
+        analysis = analyze_risk_factors(risk_text)
+        
+        if not analysis:
+            raise RuntimeError("Failed to get risk analysis from AI service")
+        
+        # Parse the analysis response
+        lines = analysis.split('\n')
+        score = None
+        score_breakdown = {}
+        concerns = []
+        
+        # Extract overall score
+        for line in lines:
+            if line.startswith('Score:'):
+                try:
+                    score = float(line.split(':')[1].strip())
+                except:
+                    pass
+                break
+        
+        # Extract score breakdown
+        in_breakdown = False
+        for line in lines:
+            if "Score Breakdown:" in line:
+                in_breakdown = True
+                continue
+            elif in_breakdown and line.strip().startswith('- '):
+                try:
+                    # Parse lines like "- Financial Health: 15/20"
+                    parts = line.strip()[2:].split(':')
+                    if len(parts) == 2:
+                        category = parts[0].strip()
+                        score_part = parts[1].strip().split('/')[0]
+                        score_breakdown[category] = float(score_part)
+                except:
+                    pass
+            elif in_breakdown and ("Top 3" in line or "Critical" in line):
+                in_breakdown = False
+        
+        # Extract critical concerns (keep them short)
+        for line in lines:
+            if line.strip().startswith(('1.', '2.', '3.')):
+                # Truncate long concerns to fit database limit
+                concern = line.strip()
+                if len(concern) > 100:
+                    concern = concern[:97] + "..."
+                concerns.append(concern)
+        
+        # Determine risk level based on score
+        if score is None:
+            score = 50.0  # Default if parsing fails
+            
+        if score <= 20:
+            risk_level = "Minimal Risk"
+        elif score <= 40:
+            risk_level = "Low Risk"
+        elif score <= 60:
+            risk_level = "Moderate Risk"
+        elif score <= 80:
+            risk_level = "High Risk"
+        else:
+            risk_level = "Extreme Risk"
+        
+        # Create a concise summary for database storage
+        summary_lines = [f"Score: {score}"]
+        
+        # Add score breakdown
+        if score_breakdown:
+            summary_lines.append("Breakdown:")
+            for category, cat_score in score_breakdown.items():
+                summary_lines.append(f"- {category}: {cat_score}/20")
+        
+        # Add top concerns
+        if concerns:
+            summary_lines.append("Top Concerns:")
+            for i, concern in enumerate(concerns[:3], 1):
+                summary_lines.append(f"{i}. {concern}")
+        
+        # Create concise analysis summary (within character limits)
+        analysis_summary = '\n'.join(summary_lines)
+        
+        # Ensure the summary fits within database limits (1800 chars to be safe)
+        if len(analysis_summary) > 1800:
+            analysis_summary = analysis_summary[:1797] + "..."
+        
+        return {
+            "risk_score": score,
+            "risk_level": risk_level,
+            "score_breakdown": score_breakdown,  # This will be JSON serialized
+            "critical_concerns": concerns[:3],  # Limit to 3 concerns
+            "analysis_summary": analysis_summary  # Concise version for database
+        }
+        
+    except Exception as e:
+        raise RuntimeError(f"Error processing risk factor analysis: {str(e)}")
+
 # --- API Endpoints ---
 @app.get("/")
 async def root():
@@ -264,7 +395,11 @@ async def health_check():
         "status": "healthy", 
         "message": "Simplified prediction service is running",
         "version": "2.0.0",
-        "prediction_method": "heuristic_business_logic"
+        "prediction_method": "heuristic_business_logic",
+        "risk_analysis": {
+            "enabled": analyze_risk_factors is not None,
+            "status": "available" if analyze_risk_factors else "disabled"
+        }
     }
 
 @app.get("/metadata")
@@ -274,10 +409,22 @@ async def metadata():
         "model_type": "heuristic_business_logic",
         "preprocessing": ["data_validation", "business_rules", "market_factors"],
         "batch_prediction": True,
-        "available_endpoints": ["/predict/combined"],
+        "available_endpoints": ["/predict/combined", "/analyze/risk-factors"],
         "prediction_bounds": {
             "offer_price": {"min": 8.0, "max": 150.0},
             "close_day1": {"min": 6.4, "max": 450.0}
+        },
+        "risk_analysis": {
+            "enabled": analyze_risk_factors is not None,
+            "input_requirements": ["risk_text (50-10000 chars)", "company_name (optional)"],
+            "output_format": ["risk_score", "risk_level", "score_breakdown", "critical_concerns", "analysis_summary"],
+            "score_ranges": {
+                "0-20": "Minimal Risk",
+                "21-40": "Low Risk", 
+                "41-60": "Moderate Risk",
+                "61-80": "High Risk",
+                "81-100": "Extreme Risk"
+            }
         }
     }
 
@@ -355,6 +502,57 @@ async def test_prediction():
     
     batch = BatchIPOInput(samples=[sample_data])
     return await predict_combined(batch)
+
+@app.post("/analyze/risk-factors", response_model=List[RiskFactorOutput])
+async def analyze_risk_factors_endpoint(batch: BatchRiskFactorInput):
+    """Analyze risk factors text and return structured risk assessment"""
+    try:
+        if not analyze_risk_factors:
+            raise HTTPException(
+                status_code=503, 
+                detail="Risk factor analysis service is not available. Please check OpenAI API configuration."
+            )
+        
+        results = []
+        for sample in batch.samples:
+            try:
+                analysis_result = process_risk_factor_analysis(
+                    risk_text=sample.risk_text,
+                    company_name=sample.company_name
+                )
+                results.append(RiskFactorOutput(**analysis_result))
+            except Exception as e:
+                # For individual sample failures, return a default high-risk assessment
+                results.append(RiskFactorOutput(
+                    risk_score=85.0,
+                    risk_level="High Risk", 
+                    score_breakdown={"Analysis": 85.0},
+                    critical_concerns=[f"Analysis failed: {str(e)}"],
+                    analysis_summary=f"Risk analysis failed: {str(e)}"
+                ))
+        
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/test/risk-analysis")
+async def test_risk_analysis():
+    """Test endpoint for risk analysis with sample data"""
+    sample_risk_text = """
+    The company faces significant risks including intense competition in the technology sector, 
+    dependence on key personnel, regulatory uncertainties, cybersecurity threats, and market volatility. 
+    Revenue concentration with major clients poses risks, and the company has limited operating history. 
+    Intellectual property disputes and rapid technological changes could impact business operations. 
+    Additionally, the company operates with negative cash flows and may require additional financing.
+    """
+    
+    sample_data = RiskFactorInput(
+        risk_text=sample_risk_text,
+        company_name="TechCorp Inc."
+    )
+    
+    batch = BatchRiskFactorInput(samples=[sample_data])
+    return await analyze_risk_factors_endpoint(batch)
 
 if __name__ == "__main__":
     import uvicorn
